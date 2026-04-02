@@ -213,6 +213,13 @@ The client stores Cognito session tokens in `localStorage` (managed by the SDK),
 
 ## Deploy to a New Account / Region
 
+### Step 0: Clone the repository
+
+```bash
+git clone https://github.com/surian1606/demo-1-notes-api.git
+cd demo-1-notes-api
+```
+
 ### Step 1: Build
 
 ```bash
