@@ -54,37 +54,48 @@ aws sts get-caller-identity
 
 ## Architecture Overview
 
-```
-┌──────────────────┐       HTTPS        ┌──────────────────────────────────┐
-│                  │  ───────────────►   │  Amazon API Gateway (REST API)   │
-│   Browser Client │                    │  - Cognito Authorizer on all     │
-│   (index.html)   │  ◄───────────────  │    routes (except OPTIONS)       │
-│                  │    JSON response    │  - CORS enabled                  │
-└──────┬───────────┘                    └──────────┬───────────────────────┘
-       │                                           │ Proxy integration
-       │  SRP Auth                                 ▼
-       │                                ┌──────────────────────────┐
-       │                                │   AWS Lambda (Python 3.12)│
-       │                                │   5 functions:            │
-       │                                │   - create\_note (POST)    │
-       │                                │   - get\_notes  (GET)      │
-       │                                │   - get\_note   (GET/:id)  │
-       │                                │   - update\_note (PUT/:id) │
-       │                                │   - delete\_note (DEL/:id) │
-       │                                └──────────┬───────────────┘
-       │                                           │ IAM execution role
-       ▼                                           ▼
-┌──────────────────┐                    ┌──────────────────────────┐
-│  Amazon Cognito   │                    │  Amazon DynamoDB          │
-│  User Pool        │                    │  (PAY\_PER\_REQUEST)        │
-│  - Self-service   │                    │  PK: userId (String)      │
-│    sign-up        │                    │  SK: noteId  (String)     │
-│  - Email verify   │                    └──────────────────────────┘
-│  - JWT tokens     │
-└──────────────────┘
+```mermaid
+flowchart LR
+    subgraph Client
+        A["🌐 Browser Client\n(index.html)"]
+    end
+
+    subgraph AWS["☁️ AWS Cloud"]
+        subgraph Auth["Amazon Cognito"]
+            B["👤 User Pool\n• Self-service sign-up\n• Email verification\n• JWT tokens (ID / Access / Refresh)"]
+        end
+
+        subgraph API["Amazon API Gateway"]
+            C["🚪 REST API\n• Cognito Authorizer\n• CORS enabled\n• Synchronous invocation"]
+        end
+
+        subgraph Compute["AWS Lambda (Python 3.12)"]
+            D1["POST /notes\ncreate_note"]
+            D2["GET /notes\nget_notes"]
+            D3["GET /notes/:id\nget_note"]
+            D4["PUT /notes/:id\nupdate_note"]
+            D5["DELETE /notes/:id\ndelete_note"]
+        end
+
+        subgraph Storage["Amazon DynamoDB"]
+            E[("📦 notes-table\nPK: userId\nSK: noteId\nOn-demand billing")]
+        end
+    end
+
+    A -- "1. SRP Auth\n(sign-up / sign-in)" --> B
+    B -- "2. JWT Tokens" --> A
+    A -- "3. HTTPS + ID Token" --> C
+    C -- "4. Validate JWT" --> B
+    C -- "5. Proxy request" --> D1 & D2 & D3 & D4 & D5
+    D1 & D2 & D3 & D4 & D5 -- "6. Read/Write\n(IAM role)" --> E
+
+    style Auth fill:#f9e4b7,stroke:#e8a317,color:#000
+    style API fill:#b7d4f9,stroke:#1769e8,color:#000
+    style Compute fill:#b7f9c4,stroke:#17a832,color:#000
+    style Storage fill:#f9b7b7,stroke:#e81717,color:#000
 ```
 
-All resources are defined in a single `template.yaml` and deployed via `sam build \&\& sam deploy`. The SAM Transform converts the template into CloudFormation, which provisions and manages the entire stack.
+All resources are defined in a single `template.yaml` and deployed via `sam build && sam deploy`. The SAM Transform converts the template into CloudFormation, which provisions and manages the entire stack.
 
 ## Service-by-Service Configuration
 
