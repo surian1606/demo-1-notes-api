@@ -1,0 +1,204 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: >
+  Demo 1 - Serverless Notes API with Cognito Auth
+  Covers Modules 1-4: API Gateway, Lambda, DynamoDB, Cognito, SAM
+
+Globals:
+  Function:
+    Runtime: python3.12
+    Timeout: 15
+    MemorySize: 256
+    Environment:
+      Variables:
+        TABLE_NAME: !Ref NotesTable
+    Architectures:
+      - x86_64
+
+Parameters:
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues:
+      - dev
+      - staging
+      - prod
+
+Resources:
+  # -------------------------------------------------------
+  # Amazon Cognito User Pool (Module 3: AuthN)
+  # -------------------------------------------------------
+  UserPool:
+    Type: AWS::Cognito::UserPool
+    Properties:
+      UserPoolName: !Sub notes-user-pool-${Environment}
+      AutoVerifiedAttributes:
+        - email
+      UsernameAttributes:
+        - email
+      Policies:
+        PasswordPolicy:
+          MinimumLength: 8
+          RequireUppercase: true
+          RequireLowercase: true
+          RequireNumbers: true
+          RequireSymbols: false
+      AdminCreateUserConfig:
+        AllowAdminCreateUserOnly: false
+      Schema:
+        - Name: email
+          Required: true
+          Mutable: true
+
+  UserPoolClient:
+    Type: AWS::Cognito::UserPoolClient
+    Properties:
+      ClientName: !Sub notes-app-client-${Environment}
+      UserPoolId: !Ref UserPool
+      ExplicitAuthFlows:
+        - ALLOW_USER_PASSWORD_AUTH
+        - ALLOW_USER_SRP_AUTH
+        - ALLOW_REFRESH_TOKEN_AUTH
+      GenerateSecret: false
+
+  # -------------------------------------------------------
+  # API Gateway with Cognito Authorizer (Module 2 + 3)
+  # -------------------------------------------------------
+  NotesApi:
+    Type: AWS::Serverless::Api
+    Properties:
+      Name: !Sub notes-api-${Environment}
+      StageName: !Ref Environment
+      Cors:
+        AllowMethods: "'GET,POST,PUT,DELETE,OPTIONS'"
+        AllowHeaders: "'Content-Type,Authorization'"
+        AllowOrigin: "'*'"
+      Auth:
+        DefaultAuthorizer: CognitoAuthorizer
+        AddDefaultAuthorizerToCorsPreflight: false
+        Authorizers:
+          CognitoAuthorizer:
+            UserPoolArn: !GetAtt UserPool.Arn
+
+  # -------------------------------------------------------
+  # DynamoDB Table (Module 1: Purpose-built data store)
+  # -------------------------------------------------------
+  NotesTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub notes-table-${Environment}
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: userId
+          AttributeType: S
+        - AttributeName: noteId
+          AttributeType: S
+      KeySchema:
+        - AttributeName: userId
+          KeyType: HASH
+        - AttributeName: noteId
+          KeyType: RANGE
+
+  # -------------------------------------------------------
+  # Lambda Functions (Module 7: Best practices applied)
+  # -------------------------------------------------------
+  CreateNoteFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub create-note-${Environment}
+      Handler: create_note.handler
+      CodeUri: src/
+      Description: Creates a new note for the authenticated user
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref NotesTable
+      Events:
+        CreateNote:
+          Type: Api
+          Properties:
+            RestApiId: !Ref NotesApi
+            Path: /notes
+            Method: POST
+
+  GetNotesFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub get-notes-${Environment}
+      Handler: get_notes.handler
+      CodeUri: src/
+      Description: Retrieves all notes for the authenticated user
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: !Ref NotesTable
+      Events:
+        GetNotes:
+          Type: Api
+          Properties:
+            RestApiId: !Ref NotesApi
+            Path: /notes
+            Method: GET
+
+  GetNoteFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub get-note-${Environment}
+      Handler: get_note.handler
+      CodeUri: src/
+      Description: Retrieves a single note by ID
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: !Ref NotesTable
+      Events:
+        GetNote:
+          Type: Api
+          Properties:
+            RestApiId: !Ref NotesApi
+            Path: /notes/{noteId}
+            Method: GET
+
+  UpdateNoteFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub update-note-${Environment}
+      Handler: update_note.handler
+      CodeUri: src/
+      Description: Updates an existing note
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref NotesTable
+      Events:
+        UpdateNote:
+          Type: Api
+          Properties:
+            RestApiId: !Ref NotesApi
+            Path: /notes/{noteId}
+            Method: PUT
+
+  DeleteNoteFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub delete-note-${Environment}
+      Handler: delete_note.handler
+      CodeUri: src/
+      Description: Deletes a note
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref NotesTable
+      Events:
+        DeleteNote:
+          Type: Api
+          Properties:
+            RestApiId: !Ref NotesApi
+            Path: /notes/{noteId}
+            Method: DELETE
+
+Outputs:
+  ApiUrl:
+    Description: API Gateway endpoint URL
+    Value: !Sub https://${NotesApi}.execute-api.${AWS::Region}.amazonaws.com/${Environment}
+  UserPoolId:
+    Description: Cognito User Pool ID
+    Value: !Ref UserPool
+  UserPoolClientId:
+    Description: Cognito User Pool Client ID
+    Value: !Ref UserPoolClient

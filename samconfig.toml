@@ -1,0 +1,15 @@
+# SAM CLI configuration file
+version = 0.1
+
+[default.deploy.parameters]
+stack_name = "demo-1-notes-api"
+resolve_s3 = true
+capabilities = "CAPABILITY_IAM CAPABILITY_NAMED_IAM"
+confirm_changeset = true
+parameter_overrides = "Environment=\"dev\""
+s3_prefix = "demo-1-notes-api"
+region = "ap-southeast-3"
+image_repositories = []
+
+[default.global.parameters]
+region = "ap-southeast-3"
